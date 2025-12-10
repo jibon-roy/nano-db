@@ -1,0 +1,6 @@
+admin
+admin123
+use test
+insert into Users set name="User2", roll=102
+insert into Users name="User3", roll=103
+exit

@@ -31,6 +31,7 @@ char cmd_list[CMD_COUNT][50] = {
     "list db",
     "version",
     "create table <name>",
+    "list table",
     "insert into <table> values (...)",
     "select * from <table>",
     "update <table> set ... where ...",
@@ -207,7 +208,7 @@ bool check_db_exists(const char *name)
     {
         printf("Invalid database name.\n");
         return false;
-        }
+    }
 
     char path[300] = {0};
 
@@ -226,7 +227,7 @@ bool check_db_exists(const char *name)
 void create_table(const char *name, const char *db_name)
 {
     // Check valid table name & db name
-    if (!name || name[0] == '\0' || !db_name || db_name[0] == '\0' || strcmp(db_name, DEFAULT_DB) == 0)
+    if (!name || name[0] == '\0' || !db_name || db_name[0] == '\0')
     {
         printf("Invalid table or database name.\n");
         return;
@@ -235,7 +236,7 @@ void create_table(const char *name, const char *db_name)
     // Check if database folder exists
     if (!check_db_exists(db_name))
     {
-        printf("Error: Database '%s' not found.\n", db_name);
+        printf("Error: Database '%s' not found. Please create it first or use an existing database.\n", db_name);
         return;
     }
 
@@ -258,6 +259,200 @@ void create_table(const char *name, const char *db_name)
            name, db_name);
 
     fclose(file);
+}
+
+// Get next auto-increment ID for a table
+int get_next_id(const char *db_name, const char *table)
+{
+    char table_path[300] = {0};
+
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table);
+#endif
+
+    FILE *file = fopen(table_path, "r");
+    if (!file)
+    {
+        // File doesn't exist yet, start with ID 1
+        return 1;
+    }
+
+    int last_id = 0;
+    char line[512];
+
+    // Read all lines to find the highest ID
+    while (fgets(line, sizeof(line), file))
+    {
+        // Parse id= from the line
+        char *id_ptr = strstr(line, "id=");
+        if (id_ptr)
+        {
+            int current_id;
+            if (sscanf(id_ptr, "id=%d", &current_id) == 1)
+            {
+                if (current_id > last_id)
+                {
+                    last_id = current_id;
+                }
+            }
+        }
+    }
+
+    fclose(file);
+    return last_id + 1;
+}
+
+// Check if table exists in a database
+bool check_table_exists(const char *db_name, const char *table_name)
+{
+    if (!db_name || db_name[0] == '\0' || !table_name || table_name[0] == '\0')
+        return false;
+
+    if (!check_db_exists(db_name))
+    {
+        printf("Database '%s' does not exist.\n", db_name);
+        return false;
+    }
+
+    char table_path[300] = {0};
+
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
+
+#ifdef _WIN32
+    return (_access(table_path, 0) == 0);
+#else
+    return (access(table_path, F_OK) == 0);
+#endif
+}
+
+// insert into table with attributes
+void insert_table_with_attributes(const char *table_name, const char *db_name, const char *attributes)
+{
+    if (!check_table_exists(db_name, table_name))
+    {
+        printf("Error: Table '%s' does not exist in database '%s'.\n", table_name, db_name);
+        return;
+    }
+    char table_path[300] = {0};
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
+
+    FILE *file = fopen(table_path, "a");
+    if (!file)
+    {
+        printf("Error: Failed to open table file for appending.\n");
+        return;
+    }
+
+    int next_id = get_next_id(db_name, table_name);
+
+    // Write the new record
+    fprintf(file, "id=%d, %s\n", next_id, attributes);
+    fflush(file); // Ensure data is written to disk
+
+    printf("Inserted record with ID %d into table '%s'.\n", next_id, table_name);
+
+    fclose(file);
+}
+// List all tables in a given database
+void list_tables(const char *db_name)
+{
+    if (!db_name || db_name[0] == '\0')
+    {
+        printf("Invalid database name.\n");
+        return;
+    }
+
+    if (!check_db_exists(db_name))
+    {
+        printf("Database '%s' does not exist.\n", db_name);
+        return;
+    }
+
+    printf("Tables in database '%s':\n", db_name);
+
+#ifndef _WIN32
+    char path[300];
+    snprintf(path, sizeof(path), "db/%s", db_name);
+    DIR *dir = opendir(path);
+
+    if (!dir)
+    {
+        printf("No tables found.\n");
+        return;
+    }
+
+    struct dirent *entry;
+    bool found = false;
+
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        // Only show .txt files (tables)
+        size_t len = strlen(entry->d_name);
+        if (len > 4 && strcmp(entry->d_name + len - 4, ".txt") == 0)
+        {
+            if (!found)
+                found = true;
+            // Remove .txt extension when printing
+            char table_name[100];
+            strncpy(table_name, entry->d_name, len - 4);
+            table_name[len - 4] = '\0';
+            printf(" - %s\n", table_name);
+        }
+    }
+
+    closedir(dir);
+
+    if (!found)
+        printf("No tables found.\n");
+
+#else
+    struct _finddata_t data;
+    intptr_t handle;
+    char search_path[300];
+    snprintf(search_path, sizeof(search_path), "db\\%s\\*.txt", db_name);
+
+    handle = _findfirst(search_path, &data);
+    if (handle == -1)
+    {
+        printf("No tables found.\n");
+        return;
+    }
+
+    bool found = false;
+
+    do
+    {
+        char table_name[100];
+        size_t len = strlen(data.name);
+        if (len > 4 && strcmp(data.name + len - 4, ".txt") == 0)
+        {
+            if (!found)
+                found = true;
+            strncpy(table_name, data.name, len - 4);
+            table_name[len - 4] = '\0';
+            printf(" - %s\n", table_name);
+        }
+    } while (_findnext(handle, &data) == 0);
+
+    _findclose(handle);
+
+    if (!found)
+        printf("No tables found.\n");
+
+#endif
 }
 
 // drop DB folder
@@ -358,16 +553,63 @@ void process_command(const char *input)
         return;
     }
 
+    // create table <name>
     if (parts == 3 && strcmp(cmd, "create") == 0 && strcmp(type, "table") == 0)
     {
         create_table(name, DB);
         return;
     }
 
-    // default fallback
-    printf("Command not recognized: %s\n", input);
-}
+    // list table
+    if (parts == 2 && strcmp(cmd, "list") == 0 && strcmp(type, "table") == 0)
+    {
+        list_tables(DB);
+        return;
+    }
 
+    // insert into <table> set name="jibon", roll=12, ...
+    if (parts >= 3 && strcmp(cmd, "insert") == 0 && strcmp(type, "into") == 0)
+    {
+        char table_name[100];
+        char rest[300];
+
+        // Get table name and rest of the command
+        if (sscanf(input, "insert into %99s %299[^\n]", table_name, rest) != 2)
+        {
+            printf("Invalid insert syntax.\n");
+            return;
+        }
+
+        // Check if command uses 'set'
+        char *attributes_ptr = strstr(rest, "set ");
+
+        if (attributes_ptr)
+        {
+            // 'set' keyword found, move pointer after 'set '
+            attributes_ptr += 4;
+        }
+        else
+        {
+            // No 'set' keyword, treat entire rest as attributes
+            attributes_ptr = rest;
+        }
+
+        // Trim leading spaces
+        while (*attributes_ptr == ' ')
+            attributes_ptr++;
+
+        // Verify we have attributes to insert
+        if (*attributes_ptr == '\0')
+        {
+            printf("Error: No attributes provided for insert.\n");
+            return;
+        }
+
+        // Insert into table by treating the attributes part as CSV-style data
+        insert_table_with_attributes(table_name, DB, attributes_ptr);
+        return;
+    }
+}
 int main()
 {
     const char *USERNAME_ADMIN = "admin";
