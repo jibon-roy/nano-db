@@ -363,6 +363,7 @@ void insert_table_with_attributes(const char *table_name, const char *db_name, c
 
     fclose(file);
 }
+
 // List all tables in a given database
 void list_tables(const char *db_name)
 {
