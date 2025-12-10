@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define MAX_INPUT_SIZE 256
 
 #ifdef _WIN32
 #include <direct.h>
@@ -14,6 +13,8 @@
 #include <dirent.h>
 #endif
 
+
+#define MAX_INPUT_SIZE 256
 #define DB_DIR "db"
 #define VERSION "0.1.0"
 #define CMD_COUNT 20
