@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-
 #ifdef _WIN32
 #include <direct.h>
 #else
@@ -12,7 +11,6 @@
 #include <sys/types.h>
 #include <dirent.h>
 #endif
-
 
 #define MAX_INPUT_SIZE 256
 #define DB_DIR "db"
@@ -97,6 +95,7 @@ void initialize()
 {
     make_dir(DB_DIR);
 }
+
 // Create DB folder
 void create_db(const char *name)
 {
@@ -200,6 +199,67 @@ void list_dbs()
 #endif
 }
 
+// void check DB exists -- to be implemented
+
+bool check_db_exists(const char *name)
+{
+    if (name == NULL || name[0] == '\0')
+    {
+        printf("Invalid database name.\n");
+        return false;
+        }
+
+    char path[300] = {0};
+
+#ifdef _WIN32
+    snprintf(path, sizeof(path), "db\\%s", name);
+    return (_access(path, 0) == 0);
+
+#else
+    snprintf(path, sizeof(path), "db/%s", name);
+    return (access(path, F_OK) == 0);
+
+#endif
+}
+
+// create Table (Text file) -- to be implemented
+void create_table(const char *name, const char *db_name)
+{
+    // Check valid table name & db name
+    if (!name || name[0] == '\0' || !db_name || db_name[0] == '\0' || strcmp(db_name, DEFAULT_DB) == 0)
+    {
+        printf("Invalid table or database name.\n");
+        return;
+    }
+
+    // Check if database folder exists
+    if (!check_db_exists(db_name))
+    {
+        printf("Error: Database '%s' not found.\n", db_name);
+        return;
+    }
+
+    // Build full table file path
+    char table_path[300] = {0};
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, name);
+
+#ifdef _WIN32
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, name);
+#endif
+    // Create the table file
+    FILE *file = fopen(table_path, "w");
+    if (!file)
+    {
+        printf("Failed to create table file.\n");
+        return;
+    }
+
+    printf("Table '%s' created successfully inside database '%s'.\n",
+           name, db_name);
+
+    fclose(file);
+}
+
 // drop DB folder
 void drop_db(const char *name)
 {
@@ -272,7 +332,6 @@ void process_command(const char *input)
             return;
         }
 #endif
-
         // Copy database name safely
         strncpy(DB, dbname, sizeof(DB) - 1);
         DB[sizeof(DB) - 1] = '\0';
@@ -299,12 +358,44 @@ void process_command(const char *input)
         return;
     }
 
+    if (parts == 3 && strcmp(cmd, "create") == 0 && strcmp(type, "table") == 0)
+    {
+        create_table(name, DB);
+        return;
+    }
+
     // default fallback
     printf("Command not recognized: %s\n", input);
 }
 
 int main()
 {
+    const char *USERNAME_ADMIN = "admin";
+    const char *PASSWORD_ADMIN = "admin123";
+
+    // Admin login
+    char admin_password[100];
+    char admin_username[100];
+    printf("Enter username : ");
+    fgets(admin_username, sizeof(admin_username), stdin);
+    // Remove newline character if present
+    admin_username[strcspn(admin_username, "\n")] = 0;
+    if (strcmp(admin_username, USERNAME_ADMIN) != 0)
+    {
+        printf("Incorrect username. Exiting.\n");
+        return 1;
+    }
+
+    printf("Enter admin password: ");
+    fgets(admin_password, sizeof(admin_password), stdin);
+    // Remove newline character if present
+    admin_password[strcspn(admin_password, "\n")] = 0;
+
+    if (strcmp(admin_password, PASSWORD_ADMIN) != 0)
+    {
+        printf("Incorrect password. Exiting.\n");
+        return 1;
+    }
 
     initialize();
 
