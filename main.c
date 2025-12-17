@@ -39,11 +39,12 @@ char cmd_list[CMD_COUNT][50] = {
     "delete from <table> where ...",
     "drop table <name>",
     "drop db <name>",
+    "get <table>",
+    "get <table> <query>",
     "clear",
     "cls",
     "help",
     "exit",
-    "quit",
 };
 
 // take input
@@ -331,6 +332,133 @@ bool check_table_exists(const char *db_name, const char *table_name)
 #endif
 }
 
+// Get all data from a table
+void get_all_data(const char *table_name, const char *db_name)
+{
+    if (!check_table_exists(db_name, table_name))
+    {
+        printf("Error: Table '%s' does not exist in database '%s'.\n", table_name, db_name);
+        return;
+    }
+
+    char table_path[300] = {0};
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
+
+    FILE *file = fopen(table_path, "r");
+    if (!file)
+    {
+        printf("Error: Failed to open table file.\n");
+        return;
+    }
+
+    char line[512];
+    int count = 0;
+
+    printf("Data from table '%s':\n", table_name);
+    printf("-----------------------------------\n");
+
+    while (fgets(line, sizeof(line), file))
+    {
+        // Remove trailing newline
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n')
+            line[len - 1] = '\0';
+
+        if (strlen(line) > 0)
+        {
+            printf("%s\n", line);
+            count++;
+        }
+    }
+
+    printf("-----------------------------------\n");
+    printf("Total records: %d\n", count);
+
+    fclose(file);
+}
+
+// Get filtered data from a table based on query (e.g., id=1 or name=Hello)
+void get_filtered_data(const char *table_name, const char *db_name, const char *query)
+{
+    if (!check_table_exists(db_name, table_name))
+    {
+        printf("Error: Table '%s' does not exist in database '%s'.\n", table_name, db_name);
+        return;
+    }
+
+    char table_path[300] = {0};
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
+
+    FILE *file = fopen(table_path, "r");
+    if (!file)
+    {
+        printf("Error: Failed to open table file.\n");
+        return;
+    }
+
+    // Parse the query to extract field and value (e.g., "id:1" or "name:Hello")
+    char field[100], value[200];
+    if (sscanf(query, "%99[^:]:%199s", field, value) != 2)
+    {
+        printf("Error: Invalid query format. Use 'field:value' (e.g., id:1 or name:Hello)\n");
+        fclose(file);
+        return;
+    }
+
+    char line[512];
+    int count = 0;
+    bool found = false;
+
+    printf("Filtered data from table '%s' where %s=%s:\n", table_name, field, value);
+    printf("-----------------------------------\n");
+
+    while (fgets(line, sizeof(line), file))
+    {
+        // Remove trailing newline
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n')
+            line[len - 1] = '\0';
+
+        if (strlen(line) > 0)
+        {
+            // Check if the line contains the field=value pattern
+            char search_pattern[300];
+            snprintf(search_pattern, sizeof(search_pattern), "%s=%s", field, value);
+
+            // Also check for quoted values
+            char search_pattern_quoted[300];
+            snprintf(search_pattern_quoted, sizeof(search_pattern_quoted), "%s=\"%s\"", field, value);
+
+            if (strstr(line, search_pattern) != NULL || strstr(line, search_pattern_quoted) != NULL)
+            {
+                printf("%s\n", line);
+                count++;
+                found = true;
+            }
+        }
+    }
+
+    printf("-----------------------------------\n");
+    if (found)
+    {
+        printf("Total matching records: %d\n", count);
+    }
+    else
+    {
+        printf("No records found matching the query.\n");
+    }
+
+    fclose(file);
+}
+
 // insert into table with attributes
 void insert_table_with_attributes(const char *table_name, const char *db_name, const char *attributes)
 {
@@ -608,6 +736,32 @@ void process_command(const char *input)
 
         // Insert into table by treating the attributes part as CSV-style data
         insert_table_with_attributes(table_name, DB, attributes_ptr);
+        return;
+    }
+
+    // get <table> or get <table> <query>
+    if (parts >= 2 && strcmp(cmd, "get") == 0)
+    {
+        char table_name[100];
+        char query[200] = {0};
+
+        // Try to parse: get <table> <query>
+        int scan_result = sscanf(input, "get %99s %199s", table_name, query);
+
+        if (scan_result == 1)
+        {
+            // Only table name provided - get all data
+            get_all_data(table_name, DB);
+        }
+        else if (scan_result == 2)
+        {
+            // Table name and query provided - filter data
+            get_filtered_data(table_name, DB, query);
+        }
+        else
+        {
+            printf("Invalid get syntax. Use 'get <table>' or 'get <table> <query>'\n");
+        }
         return;
     }
 }
