@@ -1299,6 +1299,7 @@ void process_command(const char *input)
     // If we reach here, command was not recognized
     printf("Error: Unrecognized command '%s'. Type 'help' to see available commands.\n", input);
 }
+
 int main()
 {
     const char *USERNAME_ADMIN = "admin";
