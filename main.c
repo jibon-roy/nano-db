@@ -1318,7 +1318,7 @@ int main()
         return 0;
     }
 
-    printf("Enter admin password: ");
+    printf("Enter password: ");
     fgets(admin_password, sizeof(admin_password), stdin);
     // Remove newline character if present
     admin_password[strcspn(admin_password, "\n")] = 0;
