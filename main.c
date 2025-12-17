@@ -1,15 +1,21 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include <stdio.h>   // standard I/O functions
+#include <string.h>  // string manipulation functions
+#include <stdbool.h> // boolean type
+#include <stdlib.h>  // standard library functions
+#include <unistd.h>  // for access function
 
 #ifdef _WIN32
-#include <direct.h>
+#include <direct.h> // for _mkdir on Windows
 #else
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <dirent.h>
+#include <sys/stat.h>  // for mkdir on Unix/Linux
+#include <sys/types.h> // for mkdir on Unix/Linux
+#include <dirent.h>    // for directory operations on Unix/Linux
+#endif
+
+#ifdef _WIN32
+#include <io.h> // for _access on Windows
+#else
+#include <dirent.h> // for directory operations on Unix/Linux
 #endif
 
 #define MAX_INPUT_SIZE 256
@@ -17,12 +23,6 @@
 #define VERSION "0.1.0"
 #define CMD_COUNT 20
 #define DEFAULT_DB "nano"
-
-#ifdef _WIN32
-#include <io.h>
-#else
-#include <dirent.h>
-#endif
 
 char DB[50] = DEFAULT_DB;
 
