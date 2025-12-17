@@ -1352,6 +1352,8 @@ int main()
             {
                 strncpy(DB, DEFAULT_DB, sizeof(DB) - 1);
                 DB[sizeof(DB) - 1] = '\0';
+                printf("Switched to database '%s'\n", DB);
+                continue;
             }
         }
         // fallback
