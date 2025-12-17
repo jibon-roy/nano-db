@@ -85,13 +85,17 @@ int make_dir(const char *path)
 #endif
 }
 
-// Cross-platform rmdir
-int rmdir(const char *path)
+// Cross-platform remove directory wrapper
+int remove_dir_wrapper(const char *path)
 {
     if (path == NULL)
         return -1;
 
-    return remove(path);
+#ifdef _WIN32
+    return _rmdir(path);
+#else
+    return rmdir(path);
+#endif
 }
 
 // Initialize DB directory
@@ -110,7 +114,11 @@ void create_db(const char *name)
     }
 
     char path[300] = {0};
+#ifdef _WIN32
+    snprintf(path, sizeof(path), "db\\%s", name);
+#else
     snprintf(path, sizeof(path), "db/%s", name);
+#endif
 
     int result = make_dir(path);
 
@@ -487,8 +495,18 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
     fclose(temp_file);
 
     // Replace original file with temp file
-    remove(table_path);
-    rename(temp_path, table_path);
+    if (remove(table_path) != 0)
+    {
+        printf("Error: Failed to remove original table file.\n");
+        remove(temp_path);
+        return;
+    }
+
+    if (rename(temp_path, table_path) != 0)
+    {
+        printf("Error: Failed to rename temporary file.\n");
+        return;
+    }
 
     if (updated_count > 0)
     {
@@ -578,8 +596,18 @@ void delete_record_from_table(const char *table_name, const char *db_name, const
     fclose(temp_file);
 
     // Replace original file with temp file
-    remove(table_path);
-    rename(temp_path, table_path);
+    if (remove(table_path) != 0)
+    {
+        printf("Error: Failed to remove original table file.\n");
+        remove(temp_path);
+        return;
+    }
+
+    if (rename(temp_path, table_path) != 0)
+    {
+        printf("Error: Failed to rename temporary file.\n");
+        return;
+    }
 
     if (deleted_count > 0)
     {
@@ -948,8 +976,12 @@ void drop_db(const char *name)
         return;
     }
     char path[300] = {0};
+#ifdef _WIN32
+    snprintf(path, sizeof(path), "db\\%s", name);
+#else
     snprintf(path, sizeof(path), "db/%s", name);
-    int result = rmdir(path);
+#endif
+    int result = remove_dir_wrapper(path);
 
     if (result == 0)
     {
@@ -995,7 +1027,11 @@ void process_command(const char *input)
 
         // Build path to database folder
         char path[300];
+#ifdef _WIN32
+        snprintf(path, sizeof(path), "%s\\%s", DB_DIR, dbname);
+#else
         snprintf(path, sizeof(path), "%s/%s", DB_DIR, dbname);
+#endif
 
 // Check if folder exists
 #ifdef _WIN32
@@ -1023,7 +1059,7 @@ void process_command(const char *input)
     if (strcmp(input, "help") == 0)
     {
         printf("Available commands:\n");
-        for (int i = 0; i <= CMD_COUNT; i++)
+        for (int i = 0; i < CMD_COUNT; i++)
         {
             printf(" - %s\n", cmd_list[i]);
         }
