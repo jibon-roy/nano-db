@@ -1315,7 +1315,7 @@ int main()
     if (strcmp(admin_username, USERNAME_ADMIN) != 0)
     {
         printf("Incorrect username. Exiting.\n");
-        return 1;
+        return 0;
     }
 
     printf("Enter admin password: ");
