@@ -1,4 +1,4 @@
-# nanoDB
+# NanoDB
 
 A lightweight, file-backed database shell written in C with full CRUD operations support.
 
