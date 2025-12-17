@@ -1,3 +1,5 @@
+// Need to show help on start
+
 #include <stdio.h>   // standard I/O functions
 #include <string.h>  // string manipulation functions
 #include <stdbool.h> // boolean type
