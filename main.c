@@ -21,7 +21,7 @@
 #define MAX_INPUT_SIZE 256
 #define DB_DIR "db"
 #define VERSION "0.1.8"
-#define CMD_COUNT 20
+#define CMD_COUNT 21
 #define DEFAULT_DB "nano"
 
 char DB[50] = DEFAULT_DB;
