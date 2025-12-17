@@ -1326,7 +1326,7 @@ int main()
     if (strcmp(admin_password, PASSWORD_ADMIN) != 0)
     {
         printf("Incorrect password. Exiting.\n");
-        return 1;
+        return 0;
     }
 
     initialize();
