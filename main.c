@@ -296,12 +296,12 @@ int get_next_id(const char *db_name, const char *table)
     // Read all lines to find the highest ID
     while (fgets(line, sizeof(line), file))
     {
-        // Parse id= from the line
-        char *id_ptr = strstr(line, "id=");
+        // Parse id: from the line
+        char *id_ptr = strstr(line, "id:");
         if (id_ptr)
         {
             int current_id;
-            if (sscanf(id_ptr, "id=%d", &current_id) == 1)
+            if (sscanf(id_ptr, "id:%d", &current_id) == 1)
             {
                 if (current_id > last_id)
                 {
@@ -410,42 +410,70 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
             had_newline = true;
         }
 
-        // Check if the line contains the where_field=where_value pattern
-        char search_pattern[300];
-        snprintf(search_pattern, sizeof(search_pattern), "%s=%s", where_field, where_value);
+        // Check if the line contains the where_field=where_value pattern (for id) or where_field:where_value (for other fields)
+        char search_pattern_equals[300];
+        snprintf(search_pattern_equals, sizeof(search_pattern_equals), "%s=%s", where_field, where_value);
+
+        char search_pattern_colon[300];
+        snprintf(search_pattern_colon, sizeof(search_pattern_colon), "%s:%s", where_field, where_value);
 
         char search_pattern_quoted[300];
-        snprintf(search_pattern_quoted, sizeof(search_pattern_quoted), "%s=\"%s\"", where_field, where_value);
+        snprintf(search_pattern_quoted, sizeof(search_pattern_quoted), "%s:\"%s\"", where_field, where_value);
 
-        if (strstr(line, search_pattern) != NULL || strstr(line, search_pattern_quoted) != NULL)
+        bool matches_where = (strstr(line, search_pattern_equals) != NULL ||
+                              strstr(line, search_pattern_colon) != NULL ||
+                              strstr(line, search_pattern_quoted) != NULL);
+
+        if (matches_where)
         {
             updated_count++;
 
             // Find and replace the field value in the line
-            char updated_line[512];
+            char updated_line[512] = {0};
             char *field_pos = NULL;
 
-            // Try to find the field to update
-            char old_pattern[300];
-            snprintf(old_pattern, sizeof(old_pattern), "%s=", set_field);
-            field_pos = strstr(line, old_pattern);
+            // Try to find the field to update (look for both = and : separators)
+            char old_pattern_equals[300];
+            char old_pattern_colon[300];
+            snprintf(old_pattern_equals, sizeof(old_pattern_equals), "%s=", set_field);
+            snprintf(old_pattern_colon, sizeof(old_pattern_colon), "%s:", set_field);
+
+            field_pos = strstr(line, old_pattern_equals);
+            char separator = '=';
+
+            if (!field_pos)
+            {
+                field_pos = strstr(line, old_pattern_colon);
+                separator = ':';
+            }
 
             if (field_pos)
             {
-                // Copy everything before the field
-                size_t prefix_len = field_pos - line + strlen(old_pattern);
+                // Build the new line with updated value
+                size_t prefix_len = field_pos - line;
                 strncpy(updated_line, line, prefix_len);
                 updated_line[prefix_len] = '\0';
 
-                // Skip the old value (quoted or unquoted)
-                char *value_start = field_pos + strlen(old_pattern);
+                // Add field name and separator
+                snprintf(updated_line + strlen(updated_line), sizeof(updated_line) - strlen(updated_line),
+                         "%s%c", set_field, separator);
+
+                // Find where the old value ends
+                char *value_start = field_pos + strlen(set_field) + 1; // +1 for separator
                 char *value_end = value_start;
 
-                if (*value_start == '"')
+                // Skip leading space if present
+                if (*value_end == ' ')
+                    value_end++;
+
+                // Find the end of the value (comma, space after unquoted, or end of string)
+                if (*value_end == '"')
                 {
-                    // Quoted value
-                    value_end = strchr(value_start + 1, '"');
-                    if (value_end)
+                    // Quoted value - find closing quote
+                    value_end++;
+                    while (*value_end && *value_end != '"')
+                        value_end++;
+                    if (*value_end == '"')
                         value_end++;
                 }
                 else
@@ -455,22 +483,9 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
                         value_end++;
                 }
 
-                if (!value_end)
-                    value_end = value_start + strlen(value_start);
-
-                // Add the new value (with quotes if original had quotes)
-                if (*value_start == '"')
-                {
-                    snprintf(updated_line + strlen(updated_line),
-                             sizeof(updated_line) - strlen(updated_line),
-                             "\"%s\"%s", set_value, value_end);
-                }
-                else
-                {
-                    snprintf(updated_line + strlen(updated_line),
-                             sizeof(updated_line) - strlen(updated_line),
-                             "%s%s", set_value, value_end);
-                }
+                // Append the new value
+                snprintf(updated_line + strlen(updated_line), sizeof(updated_line) - strlen(updated_line),
+                         "%s%s", set_value, value_end);
 
                 // Write updated line
                 fprintf(temp_file, "%s\n", updated_line);
@@ -761,7 +776,7 @@ void get_all_data(const char *table_name, const char *db_name)
     fclose(file);
 }
 
-// Get filtered data from a table based on query (e.g., id=1 or name=Hello)
+// Get filtered data from a table based on query (e.g., id:1 or name:Hello)
 void get_filtered_data(const char *table_name, const char *db_name, const char *query)
 {
     if (!check_table_exists(db_name, table_name))
@@ -864,7 +879,7 @@ void insert_table_with_attributes(const char *table_name, const char *db_name, c
     int next_id = get_next_id(db_name, table_name);
 
     // Write the new record
-    fprintf(file, "id=%d, %s\n", next_id, attributes);
+    fprintf(file, "id:%d, %s\n", next_id, attributes);
     fflush(file); // Ensure data is written to disk
 
     printf("Inserted record with ID %d into table '%s'.\n", next_id, table_name);

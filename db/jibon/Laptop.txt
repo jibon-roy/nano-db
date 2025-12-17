@@ -1,2 +1,2 @@
 id=1, name:New Laptop, price:200, ram:2GB
-id=2, name:New Laptop 2, price:500, ram:4GB
+id=2, name:Laptop 2, price:500, ram:4GB
