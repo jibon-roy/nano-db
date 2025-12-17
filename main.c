@@ -35,6 +35,7 @@ char cmd_list[CMD_COUNT][50] = {
     "insert into <table> set ...",
     "get <table>",
     "get <table> <field:value>",
+    "update <table> <where> <set>",
     "delete <table> <field:value>",
     "delete table <name>",
     "delete db <name>",
@@ -331,6 +332,173 @@ bool check_table_exists(const char *db_name, const char *table_name)
 #else
     return (access(table_path, F_OK) == 0);
 #endif
+}
+
+// Update specific records in a table based on where clause and set clause
+void update_record_in_table(const char *table_name, const char *db_name, const char *where_clause, const char *set_clause)
+{
+    if (!check_table_exists(db_name, table_name))
+    {
+        printf("Error: Table '%s' does not exist in database '%s'.\n", table_name, db_name);
+        return;
+    }
+
+    char table_path[300] = {0};
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
+
+    // Parse the where clause to extract field and value
+    char where_field[100], where_value[200];
+    if (sscanf(where_clause, "%99[^:]:%199s", where_field, where_value) != 2)
+    {
+        printf("Error: Invalid where clause format. Use 'field:value' (e.g., id:1)\n");
+        return;
+    }
+
+    // Parse the set clause to extract field and value
+    char set_field[100], set_value[200];
+    if (sscanf(set_clause, "%99[^:]:%199s", set_field, set_value) != 2)
+    {
+        printf("Error: Invalid set clause format. Use 'field:value' (e.g., name:NewName)\n");
+        return;
+    }
+
+    // Create temporary file
+    char temp_path[300];
+#ifndef _WIN32
+    snprintf(temp_path, sizeof(temp_path), "db/%s/%s_temp.txt", db_name, table_name);
+#else
+    snprintf(temp_path, sizeof(temp_path), "db\\%s\\%s_temp.txt", db_name, table_name);
+#endif
+
+    FILE *file = fopen(table_path, "r");
+    FILE *temp_file = fopen(temp_path, "w");
+
+    if (!file || !temp_file)
+    {
+        printf("Error: Failed to open files for update.\n");
+        if (file)
+            fclose(file);
+        if (temp_file)
+            fclose(temp_file);
+        return;
+    }
+
+    char line[512];
+    int updated_count = 0;
+
+    // Read each line and update if it matches the where clause
+    while (fgets(line, sizeof(line), file))
+    {
+        // Remove trailing newline for processing
+        size_t len = strlen(line);
+        bool had_newline = false;
+        if (len > 0 && line[len - 1] == '\n')
+        {
+            line[len - 1] = '\0';
+            had_newline = true;
+        }
+
+        bool should_update = false;
+
+        // Check if the line contains the where_field=where_value pattern
+        char search_pattern[300];
+        snprintf(search_pattern, sizeof(search_pattern), "%s=%s", where_field, where_value);
+
+        char search_pattern_quoted[300];
+        snprintf(search_pattern_quoted, sizeof(search_pattern_quoted), "%s=\"%s\"", where_field, where_value);
+
+        if (strstr(line, search_pattern) != NULL || strstr(line, search_pattern_quoted) != NULL)
+        {
+            should_update = true;
+            updated_count++;
+
+            // Find and replace the field value in the line
+            char updated_line[512];
+            char *field_pos = NULL;
+
+            // Try to find the field to update
+            char old_pattern[300];
+            snprintf(old_pattern, sizeof(old_pattern), "%s=", set_field);
+            field_pos = strstr(line, old_pattern);
+
+            if (field_pos)
+            {
+                // Copy everything before the field
+                size_t prefix_len = field_pos - line + strlen(old_pattern);
+                strncpy(updated_line, line, prefix_len);
+                updated_line[prefix_len] = '\0';
+
+                // Skip the old value (quoted or unquoted)
+                char *value_start = field_pos + strlen(old_pattern);
+                char *value_end = value_start;
+
+                if (*value_start == '"')
+                {
+                    // Quoted value
+                    value_end = strchr(value_start + 1, '"');
+                    if (value_end)
+                        value_end++;
+                }
+                else
+                {
+                    // Unquoted value - find comma or end of string
+                    while (*value_end && *value_end != ',' && *value_end != ' ')
+                        value_end++;
+                }
+
+                if (!value_end)
+                    value_end = value_start + strlen(value_start);
+
+                // Add the new value (with quotes if original had quotes)
+                if (*value_start == '"')
+                {
+                    snprintf(updated_line + strlen(updated_line),
+                             sizeof(updated_line) - strlen(updated_line),
+                             "\"%s\"%s", set_value, value_end);
+                }
+                else
+                {
+                    snprintf(updated_line + strlen(updated_line),
+                             sizeof(updated_line) - strlen(updated_line),
+                             "%s%s", set_value, value_end);
+                }
+
+                // Write updated line
+                fprintf(temp_file, "%s\n", updated_line);
+            }
+            else
+            {
+                // Field not found, write original line
+                fprintf(temp_file, "%s%s", line, had_newline ? "\n" : "");
+            }
+        }
+        else
+        {
+            // No match, write original line
+            fprintf(temp_file, "%s%s", line, had_newline ? "\n" : "");
+        }
+    }
+
+    fclose(file);
+    fclose(temp_file);
+
+    // Replace original file with temp file
+    remove(table_path);
+    rename(temp_path, table_path);
+
+    if (updated_count > 0)
+    {
+        printf("Updated %d record(s) in table '%s' where %s=%s, set %s=%s.\n",
+               updated_count, table_name, where_field, where_value, set_field, set_value);
+    }
+    else
+    {
+        printf("No records found matching the where clause.\n");
+    }
 }
 
 // Delete specific records from a table based on query
@@ -948,6 +1116,28 @@ void process_command(const char *input)
         else
         {
             printf("Invalid get syntax. Use 'get <table>' or 'get <table> <query>'\n");
+        }
+        return;
+    }
+
+    // update <table> <where_clause> <set_clause>
+    if (parts >= 2 && strcmp(cmd, "update") == 0)
+    {
+        char table_name[100];
+        char where_clause[200];
+        char set_clause[200];
+
+        // Try to parse: update <table> <field:value> <field:value>
+        int scan_result = sscanf(input, "update %99s %199s %199s", table_name, where_clause, set_clause);
+
+        if (scan_result == 3)
+        {
+            update_record_in_table(table_name, DB, where_clause, set_clause);
+        }
+        else
+        {
+            printf("Invalid update syntax. Use 'update <table> <where_field:value> <set_field:value>'\n");
+            printf("Example: update Users id:1 name:NewName\n");
         }
         return;
     }
