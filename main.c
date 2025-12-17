@@ -410,8 +410,6 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
             had_newline = true;
         }
 
-        bool should_update = false;
-
         // Check if the line contains the where_field=where_value pattern
         char search_pattern[300];
         snprintf(search_pattern, sizeof(search_pattern), "%s=%s", where_field, where_value);
@@ -421,7 +419,6 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
 
         if (strstr(line, search_pattern) != NULL || strstr(line, search_pattern_quoted) != NULL)
         {
-            should_update = true;
             updated_count++;
 
             // Find and replace the field value in the line
@@ -1058,11 +1055,67 @@ void process_command(const char *input)
     // help
     if (strcmp(input, "help") == 0)
     {
-        printf("Available commands:\n");
-        for (int i = 0; i < CMD_COUNT; i++)
-        {
-            printf(" - %s\n", cmd_list[i]);
-        }
+        printf("\n");
+        printf("================================================\n");
+        printf("||               nanoDB - HELP MENU            ||\n");
+        printf("================================================\n\n");
+
+        printf("DATABASE MANAGEMENT:\n");
+        printf("  create db <name>         Create a new database\n");
+        printf("  list db                  List all databases\n");
+        printf("  use <name>               Switch to a database\n");
+        printf("  delete db <name>         Delete entire database with all tables\n");
+        printf("  drop db <name>           Remove an empty database folder\n\n");
+
+        printf("TABLE MANAGEMENT:\n");
+        printf("  create table <name>      Create a new table in current database\n");
+        printf("  list table               List all tables in current database\n");
+        printf("  delete table <name>      Delete entire table with all records\n");
+        printf("  drop table <name>        Remove a table from current database\n\n");
+
+        printf("DATA OPERATIONS:\n");
+        printf("  insert into <table> set <fields>        Insert a new record\n");
+        printf("                                          Example: insert into users set name:John, age:30\n");
+        printf("  get <table>                             Retrieve all records from table\n");
+        printf("  get <table> <field:value>               Retrieve filtered records\n");
+        printf("                                          Example: get users id:1\n");
+        printf("  update <table> <where> <set>            Update records matching condition\n");
+        printf("                                          Example: update users id:1 name:Jane\n");
+        printf("  delete <table> <field:value>            Delete records matching condition\n");
+        printf("                                          Example: delete users id:1\n\n");
+
+        printf("UTILITY COMMANDS:\n");
+        printf("  help                     Display this help menu\n");
+        printf("  version                  Show nanoDB version\n");
+        printf("  clear / cls              Clear the terminal screen\n");
+        printf("  exit / quit              Exit the application\n\n");
+
+        printf("EXAMPLES:\n");
+        printf("  1. Create and setup database:\n");
+        printf("     > create db store\n");
+        printf("     > use store\n");
+        printf("     > create table products\n\n");
+
+        printf("  2. Insert records:\n");
+        printf("     > insert into products set name:Laptop, price:999, stock:5\n");
+        printf("     > insert into products set name:Mouse, price:25, stock:50\n\n");
+
+        printf("  3. Query and view data:\n");
+        printf("     > get products\n");
+        printf("     > get products price:999\n\n");
+
+        printf("  4. Update records:\n");
+        printf("     > update products id:1 stock:10\n\n");
+
+        printf("  5. Delete records:\n");
+        printf("     > delete products id:2\n");
+        printf("     > delete products name:Mouse\n\n");
+
+        printf("QUERY FORMAT:\n");
+        printf("  Use 'field:value' format for queries\n");
+        printf("  Examples: id:1, name:John, email:test@example.com, age:30\n\n");
+
+        printf("For more information, visit the README file.\n\n");
         return;
     }
 
