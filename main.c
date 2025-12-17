@@ -28,23 +28,24 @@ char DB[50] = DEFAULT_DB;
 
 char cmd_list[CMD_COUNT][50] = {
     "create db <name>",
-    "list db",
-    "version",
     "create table <name>",
+    "list db",
     "list table",
-    "insert into <table> values (...)",
-    "select * from <table>",
-    "update <table> set ... where ...",
     "use <name>",
-    "delete from <table> where ...",
+    "insert into <table> set ...",
+    "get <table>",
+    "get <table> <field:value>",
+    "delete <table> <field:value>",
+    "delete table <name>",
+    "delete db <name>",
     "drop table <name>",
     "drop db <name>",
-    "get <table>",
-    "get <table> <query>",
     "clear",
     "cls",
     "help",
+    "version",
     "exit",
+    "quit",
 };
 
 // take input
@@ -330,6 +331,192 @@ bool check_table_exists(const char *db_name, const char *table_name)
 #else
     return (access(table_path, F_OK) == 0);
 #endif
+}
+
+// Delete specific records from a table based on query
+void delete_record_from_table(const char *table_name, const char *db_name, const char *query)
+{
+    if (!check_table_exists(db_name, table_name))
+    {
+        printf("Error: Table '%s' does not exist in database '%s'.\n", table_name, db_name);
+        return;
+    }
+
+    char table_path[300] = {0};
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
+
+    // Parse the query to extract field and value
+    char field[100], value[200];
+    if (sscanf(query, "%99[^:]:%199s", field, value) != 2)
+    {
+        printf("Error: Invalid query format. Use 'field:value' (e.g., id:1 or name:Hello)\n");
+        return;
+    }
+
+    // Create temporary file
+    char temp_path[300];
+#ifndef _WIN32
+    snprintf(temp_path, sizeof(temp_path), "db/%s/%s_temp.txt", db_name, table_name);
+#else
+    snprintf(temp_path, sizeof(temp_path), "db\\%s\\%s_temp.txt", db_name, table_name);
+#endif
+
+    FILE *file = fopen(table_path, "r");
+    FILE *temp_file = fopen(temp_path, "w");
+
+    if (!file || !temp_file)
+    {
+        printf("Error: Failed to open files for deletion.\n");
+        if (file)
+            fclose(file);
+        if (temp_file)
+            fclose(temp_file);
+        return;
+    }
+
+    char line[512];
+    int deleted_count = 0;
+
+    // Read each line and write to temp file if it doesn't match
+    while (fgets(line, sizeof(line), file))
+    {
+        bool should_delete = false;
+
+        // Check if the line contains the field=value pattern
+        char search_pattern[300];
+        snprintf(search_pattern, sizeof(search_pattern), "%s=%s", field, value);
+
+        char search_pattern_quoted[300];
+        snprintf(search_pattern_quoted, sizeof(search_pattern_quoted), "%s=\"%s\"", field, value);
+
+        if (strstr(line, search_pattern) != NULL || strstr(line, search_pattern_quoted) != NULL)
+        {
+            should_delete = true;
+            deleted_count++;
+        }
+
+        // Write to temp file if not deleting
+        if (!should_delete)
+        {
+            fputs(line, temp_file);
+        }
+    }
+
+    fclose(file);
+    fclose(temp_file);
+
+    // Replace original file with temp file
+    remove(table_path);
+    rename(temp_path, table_path);
+
+    if (deleted_count > 0)
+    {
+        printf("Deleted %d record(s) from table '%s' where %s=%s.\n", deleted_count, table_name, field, value);
+    }
+    else
+    {
+        printf("No records found matching the query.\n");
+    }
+}
+
+// Delete entire table
+void delete_table(const char *table_name, const char *db_name)
+{
+    if (!check_table_exists(db_name, table_name))
+    {
+        printf("Error: Table '%s' does not exist in database '%s'.\n", table_name, db_name);
+        return;
+    }
+
+    char table_path[300] = {0};
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
+
+    if (remove(table_path) == 0)
+    {
+        printf("Table '%s' deleted successfully from database '%s'.\n", table_name, db_name);
+    }
+    else
+    {
+        printf("Error: Failed to delete table '%s'.\n", table_name);
+    }
+}
+
+// Delete entire database (recursive deletion)
+void delete_database(const char *db_name)
+{
+    if (!check_db_exists(db_name))
+    {
+        printf("Error: Database '%s' does not exist.\n", db_name);
+        return;
+    }
+
+    char db_path[300];
+#ifndef _WIN32
+    snprintf(db_path, sizeof(db_path), "db/%s", db_name);
+#else
+    snprintf(db_path, sizeof(db_path), "db\\%s", db_name);
+#endif
+
+    // First, delete all files in the database directory
+#ifdef _WIN32
+    struct _finddata_t data;
+    intptr_t handle;
+    char search_path[300];
+    snprintf(search_path, sizeof(search_path), "db\\%s\\*.*", db_name);
+
+    handle = _findfirst(search_path, &data);
+    if (handle != -1)
+    {
+        do
+        {
+            if (strcmp(data.name, ".") != 0 && strcmp(data.name, "..") != 0)
+            {
+                char file_path[300];
+                snprintf(file_path, sizeof(file_path), "db\\%s\\%s", db_name, data.name);
+                remove(file_path);
+            }
+        } while (_findnext(handle, &data) == 0);
+        _findclose(handle);
+    }
+#else
+    DIR *dir = opendir(db_path);
+    if (dir)
+    {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL)
+        {
+            if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0)
+            {
+                char file_path[300];
+                snprintf(file_path, sizeof(file_path), "db/%s/%s", db_name, entry->d_name);
+                remove(file_path);
+            }
+        }
+        closedir(dir);
+    }
+#endif
+
+    // Now remove the directory itself
+#ifdef _WIN32
+    if (_rmdir(db_path) == 0)
+#else
+    if (rmdir(db_path) == 0)
+#endif
+    {
+        printf("Database '%s' deleted successfully.\n", db_name);
+    }
+    else
+    {
+        printf("Error: Failed to delete database '%s'.\n", db_name);
+    }
 }
 
 // Get all data from a table
@@ -764,6 +951,59 @@ void process_command(const char *input)
         }
         return;
     }
+
+    // delete <table> <field:value> - delete specific records
+    // delete table <name> - delete entire table
+    // delete db <name> - delete entire database
+    if (parts >= 2 && strcmp(cmd, "delete") == 0)
+    {
+        // delete db <name>
+        if (parts == 3 && strcmp(type, "db") == 0)
+        {
+            delete_database(name);
+            return;
+        }
+
+        // delete table <name>
+        if (parts == 3 && strcmp(type, "table") == 0)
+        {
+            delete_table(name, DB);
+            return;
+        }
+
+        // delete <table> <field:value>
+        if (parts == 3)
+        {
+            char table_name[100];
+            char query[200];
+
+            if (sscanf(input, "delete %99s %199s", table_name, query) == 2)
+            {
+                delete_record_from_table(table_name, DB, query);
+            }
+            else
+            {
+                printf("Invalid delete syntax.\n");
+            }
+            return;
+        }
+
+        printf("Invalid delete syntax. Use:\n");
+        printf(" - delete <table> <field:value>\n");
+        printf(" - delete table <name>\n");
+        printf(" - delete db <name>\n");
+        return;
+    }
+
+    // drop table <name> (alias for delete table)
+    if (parts == 3 && strcmp(cmd, "drop") == 0 && strcmp(type, "table") == 0)
+    {
+        delete_table(name, DB);
+        return;
+    }
+
+    // If we reach here, command was not recognized
+    printf("Error: Unrecognized command '%s'. Type 'help' to see available commands.\n", input);
 }
 int main()
 {
