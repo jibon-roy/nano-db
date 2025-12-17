@@ -20,7 +20,7 @@
 
 #define MAX_INPUT_SIZE 256
 #define DB_DIR "db"
-#define VERSION "0.1.0"
+#define VERSION "0.1.8"
 #define CMD_COUNT 20
 #define DEFAULT_DB "nano"
 
