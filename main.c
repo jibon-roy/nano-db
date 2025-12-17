@@ -584,14 +584,19 @@ void delete_record_from_table(const char *table_name, const char *db_name, const
     {
         bool should_delete = false;
 
-        // Check if the line contains the field=value pattern
-        char search_pattern[300];
-        snprintf(search_pattern, sizeof(search_pattern), "%s=%s", field, value);
+        // Check if the line contains the field=value or field:value pattern
+        char search_pattern_equals[300];
+        snprintf(search_pattern_equals, sizeof(search_pattern_equals), "%s=%s", field, value);
+
+        char search_pattern_colon[300];
+        snprintf(search_pattern_colon, sizeof(search_pattern_colon), "%s:%s", field, value);
 
         char search_pattern_quoted[300];
         snprintf(search_pattern_quoted, sizeof(search_pattern_quoted), "%s=\"%s\"", field, value);
 
-        if (strstr(line, search_pattern) != NULL || strstr(line, search_pattern_quoted) != NULL)
+        if (strstr(line, search_pattern_equals) != NULL ||
+            strstr(line, search_pattern_colon) != NULL ||
+            strstr(line, search_pattern_quoted) != NULL)
         {
             should_delete = true;
             deleted_count++;
@@ -824,15 +829,20 @@ void get_filtered_data(const char *table_name, const char *db_name, const char *
 
         if (strlen(line) > 0)
         {
-            // Check if the line contains the field=value pattern
-            char search_pattern[300];
-            snprintf(search_pattern, sizeof(search_pattern), "%s=%s", field, value);
+            // Check if the line contains the field=value or field:value pattern
+            char search_pattern_equals[300];
+            snprintf(search_pattern_equals, sizeof(search_pattern_equals), "%s=%s", field, value);
+
+            char search_pattern_colon[300];
+            snprintf(search_pattern_colon, sizeof(search_pattern_colon), "%s:%s", field, value);
 
             // Also check for quoted values
             char search_pattern_quoted[300];
             snprintf(search_pattern_quoted, sizeof(search_pattern_quoted), "%s=\"%s\"", field, value);
 
-            if (strstr(line, search_pattern) != NULL || strstr(line, search_pattern_quoted) != NULL)
+            if (strstr(line, search_pattern_equals) != NULL ||
+                strstr(line, search_pattern_colon) != NULL ||
+                strstr(line, search_pattern_quoted) != NULL)
             {
                 printf("%s\n", line);
                 count++;
