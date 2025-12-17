@@ -2,7 +2,7 @@
 #include <string.h>  // string manipulation functions
 #include <stdbool.h> // boolean type
 #include <stdlib.h>  // standard library functions
-#include <unistd.h>  // for access function
+#include <unistd.h>  // access function of OS like _WIN32
 
 #ifdef _WIN32
 #include <direct.h> // for _mkdir on Windows
