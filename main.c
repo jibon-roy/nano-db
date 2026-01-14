@@ -22,8 +22,8 @@
 
 #define MAX_INPUT_SIZE 256
 #define DB_DIR "db"
-#define VERSION "0.2.0"
-#define CMD_COUNT 21
+#define VERSION "0.3.0"
+#define CMD_COUNT 22
 #define DEFAULT_DB "nano"
 
 char DB[50] = DEFAULT_DB;
@@ -33,6 +33,7 @@ char cmd_list[CMD_COUNT][50] = {
     "create table <name>",
     "list db",
     "list table",
+    "schema <table>",
     "use <name>",
     "insert into <table> set ...",
     "get <table>",
@@ -236,7 +237,7 @@ bool check_db_exists(const char *name)
 #endif
 }
 
-// create Table (Text file) -- to be implemented
+// create Table (Text file) with schema definition
 void create_table(const char *name, const char *db_name)
 {
     // Check valid table name & db name
@@ -260,6 +261,42 @@ void create_table(const char *name, const char *db_name)
 #ifdef _WIN32
     snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, name);
 #endif
+
+    // Check if table already exists
+#ifdef _WIN32
+    if (_access(table_path, 0) == 0)
+#else
+    if (access(table_path, F_OK) == 0)
+#endif
+    {
+        printf("Error: Table '%s' already exists in database '%s'.\n", name, db_name);
+        return;
+    }
+
+    // Ask user for column definitions
+    printf("Define columns for table '%s' (comma-separated, e.g., name, roll, date):\n", name);
+    printf("Note: 'id' column is auto-generated.\n");
+    printf("Columns: ");
+
+    char columns[500] = {0};
+    if (fgets(columns, sizeof(columns), stdin) == NULL)
+    {
+        printf("Error: Failed to read column definitions.\n");
+        return;
+    }
+
+    // Remove trailing newline
+    size_t len = strlen(columns);
+    if (len > 0 && columns[len - 1] == '\n')
+        columns[len - 1] = '\0';
+
+    // Validate that columns are not empty
+    if (strlen(columns) == 0)
+    {
+        printf("Error: No columns defined. Table not created.\n");
+        return;
+    }
+
     // Create the table file
     FILE *file = fopen(table_path, "w");
     if (!file)
@@ -268,10 +305,196 @@ void create_table(const char *name, const char *db_name)
         return;
     }
 
-    printf("Table '%s' created successfully inside database '%s'.\n",
-           name, db_name);
+    // Write schema as first line with special marker
+    fprintf(file, "#SCHEMA:id,%s\n", columns);
+    fflush(file);
+
+    printf("Table '%s' created successfully with columns: id, %s\n", name, columns);
 
     fclose(file);
+}
+
+// Get table schema (column names) - returns comma-separated column names
+// Returns true if schema found, false otherwise
+bool get_table_schema(const char *db_name, const char *table_name, char *schema_buffer, size_t buffer_size)
+{
+    if (!db_name || !table_name || !schema_buffer)
+        return false;
+
+    char table_path[300] = {0};
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
+
+    FILE *file = fopen(table_path, "r");
+    if (!file)
+        return false;
+
+    char line[512];
+    if (fgets(line, sizeof(line), file))
+    {
+        // Check if first line is schema definition
+        if (strncmp(line, "#SCHEMA:", 8) == 0)
+        {
+            // Remove newline
+            size_t len = strlen(line);
+            if (len > 0 && line[len - 1] == '\n')
+                line[len - 1] = '\0';
+
+            // Copy schema (after "#SCHEMA:")
+            strncpy(schema_buffer, line + 8, buffer_size - 1);
+            schema_buffer[buffer_size - 1] = '\0';
+            fclose(file);
+            return true;
+        }
+    }
+
+    fclose(file);
+    return false;
+}
+
+// Check if a field exists in the table schema
+bool field_exists_in_schema(const char *schema, const char *field_name)
+{
+    if (!schema || !field_name)
+        return false;
+
+    // Create a copy of schema to parse
+    char schema_copy[500];
+    strncpy(schema_copy, schema, sizeof(schema_copy) - 1);
+    schema_copy[sizeof(schema_copy) - 1] = '\0';
+
+    // Manual parsing without strtok (to avoid conflicts with nested calls)
+    char *start = schema_copy;
+    char *end;
+
+    while (*start)
+    {
+        // Skip leading spaces
+        while (*start == ' ')
+            start++;
+
+        // Find the end of this token (comma or end of string)
+        end = start;
+        while (*end && *end != ',')
+            end++;
+
+        // Extract the field name
+        char current_field[100] = {0};
+        size_t len = end - start;
+
+        // Trim trailing spaces
+        while (len > 0 && start[len - 1] == ' ')
+            len--;
+
+        if (len > 0 && len < sizeof(current_field))
+        {
+            strncpy(current_field, start, len);
+            current_field[len] = '\0';
+
+            if (strcmp(current_field, field_name) == 0)
+                return true;
+        }
+
+        // Move to next token
+        if (*end == ',')
+            start = end + 1;
+        else
+            break;
+    }
+
+    return false;
+}
+
+// Validate all fields in attributes against table schema
+// Returns true if all fields are valid, false otherwise
+// This function detects ALL field:value patterns (both comma-separated and space-separated)
+bool validate_fields_against_schema(const char *schema, const char *attributes, char *invalid_field, size_t invalid_field_size)
+{
+    if (!schema || !attributes)
+        return false;
+
+    // Create a copy of attributes to parse
+    char attr_copy[500];
+    strncpy(attr_copy, attributes, sizeof(attr_copy) - 1);
+    attr_copy[sizeof(attr_copy) - 1] = '\0';
+
+    // Find ALL occurrences of "word:" pattern in the attributes
+    // This catches both "name:value, roll:value" and "name:value roll:value"
+    char *ptr = attr_copy;
+    
+    while (*ptr)
+    {
+        // Skip leading spaces and commas
+        while (*ptr == ' ' || *ptr == ',')
+            ptr++;
+        
+        if (*ptr == '\0')
+            break;
+
+        // Look for a colon which indicates a field:value pair
+        char *colon = strchr(ptr, ':');
+        if (!colon)
+            break;
+
+        // Extract the field name (word before colon)
+        // Go backwards from colon to find the start of the field name
+        char *field_start = colon - 1;
+        
+        // Skip any spaces before colon
+        while (field_start >= ptr && *field_start == ' ')
+            field_start--;
+        
+        // Find the start of the field name (go back until space, comma, or start)
+        char *field_name_start = field_start;
+        while (field_name_start > ptr && *(field_name_start - 1) != ' ' && *(field_name_start - 1) != ',')
+            field_name_start--;
+
+        // Extract field name
+        char field_name[100] = {0};
+        size_t field_len = field_start - field_name_start + 1;
+        
+        if (field_len > 0 && field_len < sizeof(field_name))
+        {
+            strncpy(field_name, field_name_start, field_len);
+            field_name[field_len] = '\0';
+
+            // Trim any leading/trailing spaces from field name
+            char *start = field_name;
+            while (*start == ' ') start++;
+            
+            char *end = start + strlen(start) - 1;
+            while (end > start && *end == ' ')
+            {
+                *end = '\0';
+                end--;
+            }
+
+            // Move the trimmed name back if needed
+            if (start != field_name)
+            {
+                memmove(field_name, start, strlen(start) + 1);
+            }
+
+            // Check if field exists in schema (skip 'id' as it's auto-generated)
+            if (strlen(field_name) > 0 && strcmp(field_name, "id") != 0 && !field_exists_in_schema(schema, field_name))
+            {
+                if (invalid_field && invalid_field_size > 0)
+                {
+                    strncpy(invalid_field, field_name, invalid_field_size - 1);
+                    invalid_field[invalid_field_size - 1] = '\0';
+                }
+                return false;
+            }
+        }
+
+        // Move past the colon to continue searching
+        ptr = colon + 1;
+    }
+
+    return true;
 }
 
 // Get next auto-increment ID for a table
@@ -376,6 +599,25 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
         return;
     }
 
+    // Validate that set_field exists in the table schema
+    char schema[500] = {0};
+    if (get_table_schema(db_name, table_name, schema, sizeof(schema)))
+    {
+        if (!field_exists_in_schema(schema, set_field))
+        {
+            printf("Error: Field '%s' does not exist in table '%s'.\n", set_field, table_name);
+            printf("Valid columns are: %s\n", schema);
+            return;
+        }
+        // Also validate where_field
+        if (!field_exists_in_schema(schema, where_field))
+        {
+            printf("Error: Field '%s' does not exist in table '%s'.\n", where_field, table_name);
+            printf("Valid columns are: %s\n", schema);
+            return;
+        }
+    }
+
     // Create temporary file
     char temp_path[300];
 #ifndef _WIN32
@@ -399,6 +641,7 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
 
     char line[512];
     int updated_count = 0;
+    int field_not_found_count = 0;
 
     // Read each line and update if it matches the where clause
     while (fgets(line, sizeof(line), file))
@@ -410,6 +653,13 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
         {
             line[len - 1] = '\0';
             had_newline = true;
+        }
+
+        // Always preserve the schema line
+        if (strncmp(line, "#SCHEMA:", 8) == 0)
+        {
+            fprintf(temp_file, "%s\n", line);
+            continue;
         }
 
         // Check if the line contains the where_field=where_value pattern (for id) or where_field:where_value (for other fields)
@@ -494,7 +744,9 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
             }
             else
             {
-                // Field not found, write original line
+                // Field not found in record - this is an error
+                field_not_found_count++;
+                // Write original line unchanged
                 fprintf(temp_file, "%s%s", line, had_newline ? "\n" : "");
             }
         }
@@ -527,6 +779,10 @@ void update_record_in_table(const char *table_name, const char *db_name, const c
         printf("Updated %d record(s) in table '%s' where %s=%s, set %s=%s.\n",
                updated_count, table_name, where_field, where_value, set_field, set_value);
     }
+    else if (field_not_found_count > 0)
+    {
+        printf("Error: Field '%s' does not exist in the matching record(s). No updates made.\n", set_field);
+    }
     else
     {
         printf("No records found matching the where clause.\n");
@@ -542,13 +798,6 @@ void delete_record_from_table(const char *table_name, const char *db_name, const
         return;
     }
 
-    char table_path[300] = {0};
-#ifndef _WIN32
-    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
-#else
-    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
-#endif
-
     // Parse the query to extract field and value
     char field[100], value[200];
     if (sscanf(query, "%99[^:]:%199s", field, value) != 2)
@@ -556,6 +805,25 @@ void delete_record_from_table(const char *table_name, const char *db_name, const
         printf("Error: Invalid query format. Use 'field:value' (e.g., id:1 or name:Hello)\n");
         return;
     }
+
+    // Validate that field exists in schema
+    char schema[500] = {0};
+    if (get_table_schema(db_name, table_name, schema, sizeof(schema)))
+    {
+        if (!field_exists_in_schema(schema, field))
+        {
+            printf("Error: Field '%s' does not exist in table '%s'.\n", field, table_name);
+            printf("Valid columns are: %s\n", schema);
+            return;
+        }
+    }
+
+    char table_path[300] = {0};
+#ifndef _WIN32
+    snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
+#else
+    snprintf(table_path, sizeof(table_path), "db\\%s\\%s.txt", db_name, table_name);
+#endif
 
     // Create temporary file
     char temp_path[300];
@@ -584,6 +852,13 @@ void delete_record_from_table(const char *table_name, const char *db_name, const
     // Read each line and write to temp file if it doesn't match
     while (fgets(line, sizeof(line), file))
     {
+        // Always preserve the schema line
+        if (strncmp(line, "#SCHEMA:", 8) == 0)
+        {
+            fputs(line, temp_file);
+            continue;
+        }
+
         bool should_delete = false;
 
         // Check if the line contains the field=value or field:value pattern
@@ -770,6 +1045,10 @@ void get_all_data(const char *table_name, const char *db_name)
         if (len > 0 && line[len - 1] == '\n')
             line[len - 1] = '\0';
 
+        // Skip schema line
+        if (strncmp(line, "#SCHEMA:", 8) == 0)
+            continue;
+
         if (strlen(line) > 0)
         {
             printf("%s\n", line);
@@ -792,6 +1071,26 @@ void get_filtered_data(const char *table_name, const char *db_name, const char *
         return;
     }
 
+    // Parse the query to extract field and value (e.g., "id:1" or "name:Hello")
+    char field[100], value[200];
+    if (sscanf(query, "%99[^:]:%199s", field, value) != 2)
+    {
+        printf("Error: Invalid query format. Use 'field:value' (e.g., id:1 or name:Hello)\n");
+        return;
+    }
+
+    // Validate that field exists in schema
+    char schema[500] = {0};
+    if (get_table_schema(db_name, table_name, schema, sizeof(schema)))
+    {
+        if (!field_exists_in_schema(schema, field))
+        {
+            printf("Error: Field '%s' does not exist in table '%s'.\n", field, table_name);
+            printf("Valid columns are: %s\n", schema);
+            return;
+        }
+    }
+
     char table_path[300] = {0};
 #ifndef _WIN32
     snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
@@ -803,15 +1102,6 @@ void get_filtered_data(const char *table_name, const char *db_name, const char *
     if (!file)
     {
         printf("Error: Failed to open table file.\n");
-        return;
-    }
-
-    // Parse the query to extract field and value (e.g., "id:1" or "name:Hello")
-    char field[100], value[200];
-    if (sscanf(query, "%99[^:]:%199s", field, value) != 2)
-    {
-        printf("Error: Invalid query format. Use 'field:value' (e.g., id:1 or name:Hello)\n");
-        fclose(file);
         return;
     }
 
@@ -828,6 +1118,10 @@ void get_filtered_data(const char *table_name, const char *db_name, const char *
         size_t len = strlen(line);
         if (len > 0 && line[len - 1] == '\n')
             line[len - 1] = '\0';
+
+        // Skip schema line
+        if (strncmp(line, "#SCHEMA:", 8) == 0)
+            continue;
 
         if (strlen(line) > 0)
         {
@@ -874,6 +1168,20 @@ void insert_table_with_attributes(const char *table_name, const char *db_name, c
         printf("Error: Table '%s' does not exist in database '%s'.\n", table_name, db_name);
         return;
     }
+
+    // Get table schema and validate fields
+    char schema[500] = {0};
+    if (get_table_schema(db_name, table_name, schema, sizeof(schema)))
+    {
+        char invalid_field[100] = {0};
+        if (!validate_fields_against_schema(schema, attributes, invalid_field, sizeof(invalid_field)))
+        {
+            printf("Error: Field '%s' does not exist in table '%s'.\n", invalid_field, table_name);
+            printf("Valid columns are: %s\n", schema);
+            return;
+        }
+    }
+
     char table_path[300] = {0};
 #ifndef _WIN32
     snprintf(table_path, sizeof(table_path), "db/%s/%s.txt", db_name, table_name);
@@ -1095,8 +1403,9 @@ void process_command(const char *input)
         printf("  drop db <name>           Remove an empty database folder\n\n");
 
         printf("TABLE MANAGEMENT:\n");
-        printf("  create table <name>      Create a new table in current database\n");
+        printf("  create table <name>      Create a new table (will prompt for columns)\n");
         printf("  list table               List all tables in current database\n");
+        printf("  schema <table>           Show column definitions for a table\n");
         printf("  delete table <name>      Delete entire table with all records\n");
         printf("  drop table <name>        Remove a table from current database\n\n");
 
@@ -1121,7 +1430,8 @@ void process_command(const char *input)
         printf("  1. Create and setup database:\n");
         printf("     > create db store\n");
         printf("     > use store\n");
-        printf("     > create table products\n\n");
+        printf("     > create table products\n");
+        printf("       (Enter columns: name, price, stock)\n\n");
 
         printf("  2. Insert records:\n");
         printf("     > insert into products set name:Laptop, price:999, stock:5\n");
@@ -1129,7 +1439,8 @@ void process_command(const char *input)
 
         printf("  3. Query and view data:\n");
         printf("     > get products\n");
-        printf("     > get products price:999\n\n");
+        printf("     > get products price:999\n");
+        printf("     > schema products\n\n");
 
         printf("  4. Update records:\n");
         printf("     > update products id:1 stock:10\n\n");
@@ -1138,6 +1449,7 @@ void process_command(const char *input)
         printf("     > delete products id:2\n");
         printf("     > delete products name:Mouse\n\n");
 
+        printf("NOTE: You can only insert/update fields defined when creating the table.\n");
         printf("QUERY FORMAT:\n");
         printf("  Use 'field:value' format for queries\n");
         printf("  Examples: id:1, name:John, email:test@example.com, age:30\n\n");
@@ -1164,6 +1476,30 @@ void process_command(const char *input)
     if (parts == 2 && strcmp(cmd, "list") == 0 && strcmp(type, "table") == 0)
     {
         list_tables(DB);
+        return;
+    }
+
+    // schema <table> - show table schema/columns
+    if (parts == 2 && strcmp(cmd, "schema") == 0)
+    {
+        const char *table_name = type;
+        if (!check_table_exists(DB, table_name))
+        {
+            printf("Error: Table '%s' does not exist in database '%s'.\n", table_name, DB);
+            return;
+        }
+
+        char schema[500] = {0};
+        if (get_table_schema(DB, table_name, schema, sizeof(schema)))
+        {
+            printf("Schema for table '%s':\n", table_name);
+            printf("Columns: %s\n", schema);
+        }
+        else
+        {
+            printf("Warning: Table '%s' has no schema defined (legacy table).\n", table_name);
+            printf("This table accepts any columns.\n");
+        }
         return;
     }
 
@@ -1342,6 +1678,15 @@ int main()
     }
 
     initialize();
+
+    // Welcome message after successful login
+    printf("\n");
+    printf("================================================\n");
+    printf("||        Welcome to nanoDB v%s            ||\n", VERSION);
+    printf("================================================\n");
+    printf("Logged in as: %s\n", admin_username);
+    printf("Current database: %s\n", DB);
+    printf("\nType 'help' to see all available commands.\n\n");
 
     char buffer[MAX_INPUT_SIZE] = {0};
 
